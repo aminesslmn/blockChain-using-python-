@@ -1,72 +1,90 @@
 import hashlib
+import datetime
 
+# Helper function to compute SHA-256 hash
 def sha256(data):
+    """Returns the SHA-256 hash of the given data."""
     return hashlib.sha256(data.encode('utf-8')).hexdigest()
 
+# Function to build a Merkle tree and return the root
 def build_merkle_tree(transactions):
-    """Builds a Merkle tree and returns the root and the tree structure."""
-    tree = []
+    """Builds a Merkle tree and returns the root."""
+    if not transactions:
+        return sha256("")  # Empty tree hash
+    
+    # Hash all transactions to create the leaves
     leaves = [sha256(tx) for tx in transactions]
-    tree.append(leaves)
-
+    
+    # Build the tree level by level
     while len(leaves) > 1:
-        if len(leaves) % 2 == 1:  
+        if len(leaves) % 2 == 1:  # If odd, duplicate the last leaf
             leaves.append(leaves[-1])
-
         new_level = []
         for i in range(0, len(leaves), 2):
-            new_level.append(sha256(leaves[i] + leaves[i + 1]))
+            combined = leaves[i] + leaves[i + 1]
+            new_level.append(sha256(combined))
         leaves = new_level
-        tree.append(leaves)
-
-    return tree[-1][0], tree  
-
-def merkle_proof(transactions, target_tx):
-    """Generate a Merkle proof for the given target transaction."""
-    proof = []
-    _, tree = build_merkle_tree(transactions)
-
-    leaves = tree[0]  
-    target_hash = sha256(target_tx)
     
-    if target_hash not in leaves:
-        return None  
+    return leaves[0]  # The Merkle root
 
-    index = leaves.index(target_hash)  
+# Block class
+class Block:
+    def __init__(self, index, timestamp, transactions, previous_hash):
+        self.index = index
+        self.timestamp = timestamp
+        self.transactions = transactions
+        self.previous_hash = previous_hash
+        self.merkle_root = build_merkle_tree(transactions)  # Compute Merkle root
+        self.hash = self.calculate_hash()
 
-    for level in tree[:-1]:  
-        if index % 2 == 0:  
-            sibling_index = index + 1 if index + 1 < len(level) else index
-        else:  
-            sibling_index = index - 1
+    def calculate_hash(self):
+        """Generate the block's hash."""
+        block_string = str(self.index) + str(self.timestamp) + self.merkle_root + self.previous_hash
+        return sha256(block_string)
 
-        proof.append((level[sibling_index], index % 2 == 0))  
-        index = index // 2  
+# Blockchain class
+class Blockchain:
+    def __init__(self):
+        self.chain = [self.create_genesis_block()]
 
-    return proof
+    def create_genesis_block(self):
+        """Create the first block in the blockchain (genesis block)."""
+        return Block(0, str(datetime.datetime.now()), ["Genesis Block"], "0")
 
-def verify_merkle_proof(proof, target_tx, root):
-    """Verify a Merkle proof for the given target transaction."""
-    target_hash = sha256(target_tx)
+    def add_block(self, transactions):
+        """Add a new block to the blockchain."""
+        last_block = self.chain[-1]
+        new_block = Block(len(self.chain), str(datetime.datetime.now()), transactions, last_block.hash)
+        self.chain.append(new_block)
 
-    for sibling_hash, is_left in proof:
-        if is_left:
-            target_hash = sha256(target_hash + sibling_hash)
+# Function to verify a block's Merkle root
+def verify_block(block):
+    """Verifies that the block's Merkle root matches the transactions."""
+    computed_merkle_root = build_merkle_tree(block.transactions)
+    return computed_merkle_root == block.merkle_root
+
+# Example usage
+if __name__ == "__main__":
+    # Create a blockchain
+    blockchain = Blockchain()
+
+    # Add blocks with transactions
+    blockchain.add_block(["tx1", "tx2", "tx3"])
+    blockchain.add_block(["tx4", "tx5"])
+
+    # Print blockchain details
+    for block in blockchain.chain:
+        print(f"Block #{block.index}:")
+        print(f"Hash: {block.hash}")
+        print(f"Merkle Root: {block.merkle_root}")
+        print(f"Previous Hash: {block.previous_hash}")
+        print(f"Transactions: {block.transactions}")
+        print()
+
+    # Verify the blockchain
+    print("Verifying blockchain integrity:")
+    for block in blockchain.chain:
+        if verify_block(block):
+            print(f"Block #{block.index} is valid.")
         else:
-            target_hash = sha256(sibling_hash + target_hash)
-
-    return target_hash == root  
-
-
-transactions = ["tx1", "tx2", "tx3", "tx4"]
-root, _ = build_merkle_tree(transactions)
-
-
-proof = merkle_proof(transactions, "tx3")
-
-print(f"Merkle Root: {root}")
-print(f"Merkle Proof for 'tx3': {proof}")
-
-# Verify the proof for "tx3"
-is_valid = verify_merkle_proof(proof, "tx3", root)
-print(f"Verification Result: {is_valid}")
+            print(f"Block #{block.index} is invalid.")
